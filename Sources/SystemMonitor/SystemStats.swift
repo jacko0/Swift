@@ -15,6 +15,12 @@ class SystemStats: ObservableObject {
     @Published var perCoreUsage: [Double] = []
     @Published var memUsed: UInt64 = 0
     @Published var memTotal: UInt64 = 0
+    @Published var memWired: UInt64 = 0
+    @Published var memApp: UInt64 = 0
+    @Published var memCompressed: UInt64 = 0
+    @Published var memCached: UInt64 = 0
+    @Published var memSwapUsed: UInt64 = 0
+    @Published var memPressureHistory: [Double] = []
     @Published var diskUsed: UInt64 = 0
     @Published var diskTotal: UInt64 = 0
     @Published var uptime: TimeInterval = 0
@@ -32,6 +38,8 @@ class SystemStats: ObservableObject {
     @Published var fanSpeeds: [Int] = []
     @Published var processes: [ProcessEntry] = []
     @Published var processCount: Int = 0
+    @Published var energyImpactHistory: [Double] = []
+    @Published var batteryLevelHistory: [Double] = []
 
     private var timer: Timer?
     private var prevCPUInfo: processor_info_array_t?
@@ -46,7 +54,7 @@ class SystemStats: ObservableObject {
     init() {
         cpuName = readCPUName()
         refresh()
-        timer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
+        timer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
             self?.refresh()
         }
     }
@@ -66,7 +74,7 @@ class SystemStats: ObservableObject {
             self.refreshCount += 1
 
             let (cpu, coreUsages) = self.readCPU()
-            let (mUsed, mTotal) = self.readMemory()
+            let memDetail = self.readMemory()
             let (dUsed, dTotal) = self.readDisk()
             let up = ProcessInfo.processInfo.systemUptime
             let (battery, charging) = self.readBattery()
@@ -80,10 +88,24 @@ class SystemStats: ObservableObject {
             let procs: [ProcessEntry]? = shouldRefreshProcs ? self.readProcesses() : nil
 
             DispatchQueue.main.async {
+                let maxSamples = 300
+
                 self.cpuUsage = cpu
                 self.perCoreUsage = coreUsages
-                self.memUsed = mUsed
-                self.memTotal = mTotal
+                self.memUsed = memDetail.used
+                self.memTotal = memDetail.total
+                self.memWired = memDetail.wired
+                self.memApp = memDetail.app
+                self.memCompressed = memDetail.compressed
+                self.memCached = memDetail.cached
+                self.memSwapUsed = memDetail.swapUsed
+
+                // Track memory pressure history
+                let pressure = memDetail.total > 0 ? Double(memDetail.used) / Double(memDetail.total) : 0
+                self.memPressureHistory.append(pressure)
+                if self.memPressureHistory.count > maxSamples {
+                    self.memPressureHistory.removeFirst(self.memPressureHistory.count - maxSamples)
+                }
                 self.diskUsed = dUsed
                 self.diskTotal = dTotal
                 self.uptime = up
@@ -94,10 +116,9 @@ class SystemStats: ObservableObject {
                 self.netTotalOut = netOut
                 self.netDownSpeed = downSpd
                 self.netUpSpeed = upSpd
-                // Append to history, keep last 300 samples (10 min at 2s intervals)
+                // Append to history
                 self.netDownHistory.append(downSpd)
                 self.netUpHistory.append(upSpd)
-                let maxSamples = 300
                 if self.netDownHistory.count > maxSamples {
                     self.netDownHistory.removeFirst(self.netDownHistory.count - maxSamples)
                 }
@@ -109,6 +130,20 @@ class SystemStats: ObservableObject {
                 if let procs {
                     self.processes = procs
                     self.processCount = procs.count
+                }
+
+                // Track energy impact history (total energy impact = sum of per-process CPU as proxy)
+                let totalEnergyImpact = self.processes.reduce(0.0) { $0 + $1.cpuUsage }
+                self.energyImpactHistory.append(totalEnergyImpact)
+                if self.energyImpactHistory.count > maxSamples {
+                    self.energyImpactHistory.removeFirst(self.energyImpactHistory.count - maxSamples)
+                }
+
+                // Track battery level history
+                let battLevel = battery >= 0 ? Double(battery) : 100.0
+                self.batteryLevelHistory.append(battLevel)
+                if self.batteryLevelHistory.count > maxSamples {
+                    self.batteryLevelHistory.removeFirst(self.batteryLevelHistory.count - maxSamples)
                 }
             }
         }
@@ -215,19 +250,46 @@ class SystemStats: ObservableObject {
     }
 
     // MARK: - Memory
-    private func readMemory() -> (UInt64, UInt64) {
+    struct DetailedMemory {
+        let used: UInt64
+        let total: UInt64
+        let wired: UInt64
+        let app: UInt64
+        let compressed: UInt64
+        let cached: UInt64
+        let swapUsed: UInt64
+    }
+
+    private func readMemory() -> DetailedMemory {
         let total = ProcessInfo.processInfo.physicalMemory
-        var stats = vm_statistics64()
+        var vmStats = vm_statistics64()
         var count = mach_msg_type_number_t(MemoryLayout<vm_statistics64>.size / MemoryLayout<integer_t>.size)
-        let result = withUnsafeMutablePointer(to: &stats) {
+        let result = withUnsafeMutablePointer(to: &vmStats) {
             $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
                 host_statistics64(mach_host_self(), HOST_VM_INFO64, $0, &count)
             }
         }
-        guard result == KERN_SUCCESS else { return (0, total) }
+        guard result == KERN_SUCCESS else {
+            return DetailedMemory(used: 0, total: total, wired: 0, app: 0, compressed: 0, cached: 0, swapUsed: 0)
+        }
         let pageSize = UInt64(vm_kernel_page_size)
-        let used = (UInt64(stats.active_count) + UInt64(stats.wire_count)) * pageSize
-        return (used, total)
+        let wired = UInt64(vmStats.wire_count) * pageSize
+        let active = UInt64(vmStats.active_count) * pageSize
+        let compressed = UInt64(vmStats.compressor_page_count) * pageSize
+        let cached = UInt64(vmStats.external_page_count) * pageSize
+        let used = active + wired
+        let app = active
+
+        // Read swap usage
+        var swapUsed: UInt64 = 0
+        var xswUsage = xsw_usage()
+        var xswSize = MemoryLayout<xsw_usage>.size
+        var swapMib: [Int32] = [CTL_VM, VM_SWAPUSAGE]
+        if sysctl(&swapMib, 2, &xswUsage, &xswSize, nil, 0) == 0 {
+            swapUsed = xswUsage.xsu_used
+        }
+
+        return DetailedMemory(used: used, total: total, wired: wired, app: app, compressed: compressed, cached: cached, swapUsed: swapUsed)
     }
 
     // MARK: - Disk

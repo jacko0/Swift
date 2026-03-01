@@ -10,6 +10,6 @@ struct SystemMonitorApp: App {
                 .environmentObject(stats)
                 .preferredColorScheme(.dark)
         }
-        .defaultSize(width: 760, height: 540)
+        .defaultSize(width: 190, height: 270)
     }
 }
