@@ -1,25 +1,46 @@
 import SwiftUI
 
+// MARK: - Scale Factor Environment Key
+
+private struct ScaleFactorKey: EnvironmentKey {
+    static let defaultValue: CGFloat = 1.0
+}
+
+extension EnvironmentValues {
+    var scaleFactor: CGFloat {
+        get { self[ScaleFactorKey.self] }
+        set { self[ScaleFactorKey.self] = newValue }
+    }
+}
+
 // MARK: - Main Dashboard
 
 struct ContentView: View {
     @EnvironmentObject var stats: SystemStats
+    @Environment(\.scaleFactor) private var scaleFactor
+
+    private let referenceWidth: CGFloat = 760
 
     var body: some View {
-        ZStack {
-            Color(red: 0.10, green: 0.10, blue: 0.12).ignoresSafeArea()
+        GeometryReader { geo in
+            let scale = geo.size.width / referenceWidth
 
-            ScrollView {
-                VStack(spacing: 20) {
-                    header
-                    metricsGrid
-                    networkCard
-                    thermalCard
-                    bottomRow
-                    processListCard
+            ZStack {
+                Color(red: 0.10, green: 0.10, blue: 0.12).ignoresSafeArea()
+
+                ScrollView {
+                    VStack(spacing: 20 * scale) {
+                        header
+                        metricsGrid
+                        networkCard
+                        thermalCard
+                        bottomRow
+                        processListCard
+                    }
+                    .padding(24 * scale)
                 }
-                .padding(24)
             }
+            .environment(\.scaleFactor, scale)
         }
     }
 
@@ -28,21 +49,21 @@ struct ContentView: View {
     private var header: some View {
         HStack(alignment: .bottom) {
             VStack(alignment: .leading, spacing: 2) {
-                Text("System Monitor v1.3")
-                    .font(.largeTitle.bold())
+                Text("System Monitor v1.3.2")
+                    .font(.system(size: 30 * scaleFactor, weight: .bold))
                     .foregroundColor(.white)
                 Text(stats.cpuName.isEmpty ? ProcessInfo.processInfo.hostName : stats.cpuName)
-                    .font(.caption)
+                    .font(.system(size: 11 * scaleFactor))
                     .foregroundColor(.secondary)
                     .lineLimit(1)
             }
             Spacer()
             VStack(alignment: .trailing, spacing: 2) {
                 Text(ProcessInfo.processInfo.hostName)
-                    .font(.subheadline.bold())
+                    .font(.system(size: 14 * scaleFactor, weight: .bold))
                     .foregroundColor(.white)
                 Text(ProcessInfo.processInfo.operatingSystemVersionString)
-                    .font(.caption2)
+                    .font(.system(size: 10 * scaleFactor))
                     .foregroundColor(.secondary)
             }
         }
@@ -51,7 +72,7 @@ struct ContentView: View {
     // MARK: Metrics Grid
 
     private var metricsGrid: some View {
-        HStack(spacing: 16) {
+        HStack(spacing: 16 * scaleFactor) {
             GaugeCard(
                 title: "CPU",
                 percent: stats.cpuUsage,
@@ -78,53 +99,61 @@ struct ContentView: View {
     private var networkCard: some View {
         HStack(spacing: 0) {
             // Download
-            HStack(spacing: 14) {
-                Image(systemName: "arrow.down.circle.fill")
-                    .font(.title2)
-                    .foregroundColor(.cyan)
-                    .frame(width: 36)
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Download")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    Text(formatSpeed(stats.netDownSpeed))
-                        .font(.title2.bold())
+            VStack(alignment: .leading, spacing: 8 * scaleFactor) {
+                HStack(spacing: 14 * scaleFactor) {
+                    Image(systemName: "arrow.down.circle.fill")
+                        .font(.system(size: 20 * scaleFactor))
                         .foregroundColor(.cyan)
-                    Text("Total: \(formatBytes(stats.netTotalIn))")
-                        .font(.caption2)
-                        .foregroundColor(.secondary)
+                        .frame(width: 36 * scaleFactor)
+                    VStack(alignment: .leading, spacing: 4 * scaleFactor) {
+                        Text("Download")
+                            .font(.system(size: 11 * scaleFactor))
+                            .foregroundColor(.secondary)
+                        Text(formatSpeed(stats.netDownSpeed))
+                            .font(.system(size: 20 * scaleFactor, weight: .bold))
+                            .foregroundColor(.cyan)
+                        Text("Total: \(formatBytes(stats.netTotalIn))")
+                            .font(.system(size: 10 * scaleFactor))
+                            .foregroundColor(.secondary)
+                    }
                 }
+                SparklineView(data: stats.netDownHistory, color: .cyan)
+                    .frame(height: 40 * scaleFactor)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
             Divider()
-                .frame(height: 48)
+                .frame(height: 90 * scaleFactor)
                 .background(Color.white.opacity(0.1))
-                .padding(.horizontal, 16)
+                .padding(.horizontal, 16 * scaleFactor)
 
             // Upload
-            HStack(spacing: 14) {
-                Image(systemName: "arrow.up.circle.fill")
-                    .font(.title2)
-                    .foregroundColor(.orange)
-                    .frame(width: 36)
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Upload")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    Text(formatSpeed(stats.netUpSpeed))
-                        .font(.title2.bold())
+            VStack(alignment: .leading, spacing: 8 * scaleFactor) {
+                HStack(spacing: 14 * scaleFactor) {
+                    Image(systemName: "arrow.up.circle.fill")
+                        .font(.system(size: 20 * scaleFactor))
                         .foregroundColor(.orange)
-                    Text("Total: \(formatBytes(stats.netTotalOut))")
-                        .font(.caption2)
-                        .foregroundColor(.secondary)
+                        .frame(width: 36 * scaleFactor)
+                    VStack(alignment: .leading, spacing: 4 * scaleFactor) {
+                        Text("Upload")
+                            .font(.system(size: 11 * scaleFactor))
+                            .foregroundColor(.secondary)
+                        Text(formatSpeed(stats.netUpSpeed))
+                            .font(.system(size: 20 * scaleFactor, weight: .bold))
+                            .foregroundColor(.orange)
+                        Text("Total: \(formatBytes(stats.netTotalOut))")
+                            .font(.system(size: 10 * scaleFactor))
+                            .foregroundColor(.secondary)
+                    }
                 }
+                SparklineView(data: stats.netUpHistory, color: .orange)
+                    .frame(height: 40 * scaleFactor)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(18)
+        .padding(18 * scaleFactor)
         .background(Color.white.opacity(0.05))
-        .cornerRadius(18)
+        .cornerRadius(18 * scaleFactor)
     }
 
     // MARK: Thermal Card
@@ -132,22 +161,22 @@ struct ContentView: View {
     private var thermalCard: some View {
         HStack(spacing: 0) {
             // Temperature
-            HStack(spacing: 14) {
+            HStack(spacing: 14 * scaleFactor) {
                 Image(systemName: "thermometer.medium")
-                    .font(.title2)
+                    .font(.system(size: 20 * scaleFactor))
                     .foregroundColor(tempColor)
-                    .frame(width: 36)
-                VStack(alignment: .leading, spacing: 4) {
+                    .frame(width: 36 * scaleFactor)
+                VStack(alignment: .leading, spacing: 4 * scaleFactor) {
                     Text("CPU Temp")
-                        .font(.caption)
+                        .font(.system(size: 11 * scaleFactor))
                         .foregroundColor(.secondary)
                     if let t = stats.cpuTemp {
                         Text(String(format: "%.1f °C", t))
-                            .font(.title2.bold())
+                            .font(.system(size: 20 * scaleFactor, weight: .bold))
                             .foregroundColor(tempColor)
                     } else {
                         Text("N/A")
-                            .font(.title2.bold())
+                            .font(.system(size: 20 * scaleFactor, weight: .bold))
                             .foregroundColor(.secondary)
                     }
                 }
@@ -155,33 +184,33 @@ struct ContentView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
 
             Divider()
-                .frame(height: 48)
+                .frame(height: 48 * scaleFactor)
                 .background(Color.white.opacity(0.1))
-                .padding(.horizontal, 16)
+                .padding(.horizontal, 16 * scaleFactor)
 
             // Fans
-            HStack(spacing: 14) {
+            HStack(spacing: 14 * scaleFactor) {
                 Image(systemName: "fan.fill")
-                    .font(.title2)
+                    .font(.system(size: 20 * scaleFactor))
                     .foregroundColor(.cyan)
-                    .frame(width: 36)
-                VStack(alignment: .leading, spacing: 4) {
+                    .frame(width: 36 * scaleFactor)
+                VStack(alignment: .leading, spacing: 4 * scaleFactor) {
                     Text("Fans")
-                        .font(.caption)
+                        .font(.system(size: 11 * scaleFactor))
                         .foregroundColor(.secondary)
                     if stats.fanSpeeds.isEmpty {
                         Text("N/A")
-                            .font(.title2.bold())
+                            .font(.system(size: 20 * scaleFactor, weight: .bold))
                             .foregroundColor(.secondary)
                     } else {
-                        HStack(spacing: 12) {
+                        HStack(spacing: 12 * scaleFactor) {
                             ForEach(Array(stats.fanSpeeds.enumerated()), id: \.offset) { i, rpm in
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text("Fan \(i + 1)")
-                                        .font(.caption2)
+                                        .font(.system(size: 10 * scaleFactor))
                                         .foregroundColor(.secondary)
                                     Text("\(rpm) RPM")
-                                        .font(.subheadline.bold())
+                                        .font(.system(size: 13 * scaleFactor, weight: .bold))
                                         .foregroundColor(.cyan)
                                 }
                             }
@@ -191,9 +220,9 @@ struct ContentView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(18)
+        .padding(18 * scaleFactor)
         .background(Color.white.opacity(0.05))
-        .cornerRadius(18)
+        .cornerRadius(18 * scaleFactor)
     }
 
     private var tempColor: Color {
@@ -208,10 +237,10 @@ struct ContentView: View {
     // MARK: Bottom Row
 
     private var bottomRow: some View {
-        HStack(spacing: 16) {
+        HStack(spacing: 16 * scaleFactor) {
             InfoCard(icon: "clock.fill", title: "Uptime") {
                 Text(uptimeString)
-                    .font(.title2.bold())
+                    .font(.system(size: 20 * scaleFactor, weight: .bold))
                     .foregroundColor(.white)
             }
 
@@ -220,22 +249,23 @@ struct ContentView: View {
                     VStack(alignment: .leading, spacing: 2) {
                         // Main number = LONG-TERM HEALTH
                         Text(stats.batteryHealth > 0 ? "\(stats.batteryHealth)%" : "\(stats.batteryLevel)%")
-                            .font(.title2.bold())
+                            .font(.system(size: 20 * scaleFactor, weight: .bold))
                             .foregroundColor(batteryColor)
 
                         Text("health")
-                            .font(.caption2)
+                            .font(.system(size: 10 * scaleFactor))
                             .foregroundColor(.secondary)
 
                         // Optional: current charge level underneath
                         if stats.batteryHealth > 0 {
                             Text("\(stats.batteryLevel)% charged")
-                                .font(.caption)
+                                .font(.system(size: 11 * scaleFactor))
                                 .foregroundColor(.secondary)
                         }
 
                         if stats.isCharging {
                             Image(systemName: "bolt.fill")
+                                .font(.system(size: 14 * scaleFactor))
                                 .foregroundColor(.yellow)
                         }
                     }
@@ -244,7 +274,7 @@ struct ContentView: View {
 
             InfoCard(icon: "cpu", title: "Processes") {
                 Text("\(stats.processCount) running")
-                    .font(.title2.bold())
+                    .font(.system(size: 20 * scaleFactor, weight: .bold))
                     .foregroundColor(.white)
             }
         }
@@ -253,32 +283,32 @@ struct ContentView: View {
     // MARK: Process List
 
     private var processListCard: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 12 * scaleFactor) {
             HStack {
                 Image(systemName: "list.number")
-                    .font(.title2)
+                    .font(.system(size: 20 * scaleFactor))
                     .foregroundColor(.secondary)
                 Text("Processes")
-                    .font(.headline)
+                    .font(.system(size: 15 * scaleFactor, weight: .semibold))
                     .foregroundColor(.white)
                 Spacer()
                 Text("\(stats.processCount) total")
-                    .font(.caption)
+                    .font(.system(size: 11 * scaleFactor))
                     .foregroundColor(.secondary)
             }
 
             // Column headers
             HStack(spacing: 0) {
                 Text("PID")
-                    .frame(width: 60, alignment: .leading)
+                    .frame(width: 60 * scaleFactor, alignment: .leading)
                 Text("Name")
                     .frame(maxWidth: .infinity, alignment: .leading)
                 Text("Memory")
-                    .frame(width: 80, alignment: .trailing)
+                    .frame(width: 80 * scaleFactor, alignment: .trailing)
             }
-            .font(.caption2.bold())
+            .font(.system(size: 10 * scaleFactor, weight: .bold))
             .foregroundColor(.secondary)
-            .padding(.horizontal, 4)
+            .padding(.horizontal, 4 * scaleFactor)
 
             Divider()
                 .background(Color.white.opacity(0.1))
@@ -291,11 +321,11 @@ struct ContentView: View {
                     }
                 }
             }
-            .frame(height: 300)
+            .frame(height: 300 * scaleFactor)
         }
-        .padding(18)
+        .padding(18 * scaleFactor)
         .background(Color.white.opacity(0.05))
-        .cornerRadius(18)
+        .cornerRadius(18 * scaleFactor)
     }
 
     // MARK: Helpers
@@ -358,6 +388,8 @@ struct GaugeCard: View {
     let label: String
     let sublabel: String
 
+    @Environment(\.scaleFactor) private var scaleFactor
+
     private var color: Color {
         switch percent {
         case 0..<0.5: return .green
@@ -367,39 +399,39 @@ struct GaugeCard: View {
     }
 
     var body: some View {
-        VStack(spacing: 14) {
+        VStack(spacing: 14 * scaleFactor) {
             Text(title)
-                .font(.headline)
+                .font(.system(size: 15 * scaleFactor, weight: .semibold))
                 .foregroundColor(.secondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
             ZStack {
                 ArcShape(startDeg: 135, endDeg: 405)
                     .stroke(Color.white.opacity(0.08),
-                            style: StrokeStyle(lineWidth: 14, lineCap: .round))
+                            style: StrokeStyle(lineWidth: 14 * scaleFactor, lineCap: .round))
 
                 ArcShape(startDeg: 135, endDeg: 135 + 270 * percent)
                     .stroke(color,
-                            style: StrokeStyle(lineWidth: 14, lineCap: .round))
+                            style: StrokeStyle(lineWidth: 14 * scaleFactor, lineCap: .round))
                     .animation(.easeInOut(duration: 0.7), value: percent)
 
                 VStack(spacing: 2) {
                     Text(label)
-                        .font(.title.bold())
+                        .font(.system(size: 26 * scaleFactor, weight: .bold))
                         .foregroundColor(color)
                     Text(sublabel)
-                        .font(.caption2)
+                        .font(.system(size: 10 * scaleFactor))
                         .foregroundColor(.secondary)
                         .multilineTextAlignment(.center)
                 }
             }
-            .frame(height: 130)
-            .padding(.horizontal, 10)
+            .frame(height: 130 * scaleFactor)
+            .padding(.horizontal, 10 * scaleFactor)
         }
-        .padding(18)
+        .padding(18 * scaleFactor)
         .frame(maxWidth: .infinity)
         .background(Color.white.opacity(0.05))
-        .cornerRadius(18)
+        .cornerRadius(18 * scaleFactor)
     }
 }
 
@@ -410,25 +442,27 @@ struct InfoCard<Content: View>: View {
     let title: String
     @ViewBuilder let content: Content
 
-    var body: some View {
-        HStack(spacing: 14) {
-            Image(systemName: icon)
-                .font(.title2)
-                .foregroundColor(.secondary)
-                .frame(width: 36)
+    @Environment(\.scaleFactor) private var scaleFactor
 
-            VStack(alignment: .leading, spacing: 4) {
+    var body: some View {
+        HStack(spacing: 14 * scaleFactor) {
+            Image(systemName: icon)
+                .font(.system(size: 20 * scaleFactor))
+                .foregroundColor(.secondary)
+                .frame(width: 36 * scaleFactor)
+
+            VStack(alignment: .leading, spacing: 4 * scaleFactor) {
                 Text(title)
-                    .font(.caption)
+                    .font(.system(size: 11 * scaleFactor))
                     .foregroundColor(.secondary)
                 content
             }
             Spacer()
         }
-        .padding(18)
+        .padding(18 * scaleFactor)
         .frame(maxWidth: .infinity)
         .background(Color.white.opacity(0.05))
-        .cornerRadius(18)
+        .cornerRadius(18 * scaleFactor)
     }
 }
 
@@ -437,22 +471,24 @@ struct InfoCard<Content: View>: View {
 struct ProcessRow: View {
     let proc: ProcessEntry
 
+    @Environment(\.scaleFactor) private var scaleFactor
+
     var body: some View {
         HStack(spacing: 0) {
             Text("\(proc.id)")
-                .frame(width: 60, alignment: .leading)
+                .frame(width: 60 * scaleFactor, alignment: .leading)
                 .foregroundColor(.secondary)
             Text(proc.name)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .foregroundColor(.white)
                 .lineLimit(1)
             Text(formattedMem)
-                .frame(width: 80, alignment: .trailing)
+                .frame(width: 80 * scaleFactor, alignment: .trailing)
                 .foregroundColor(memColor)
         }
-        .font(.system(.caption, design: .monospaced))
-        .padding(.vertical, 4)
-        .padding(.horizontal, 4)
+        .font(.system(size: 11 * scaleFactor, design: .monospaced))
+        .padding(.vertical, 4 * scaleFactor)
+        .padding(.horizontal, 4 * scaleFactor)
     }
 
     private var formattedMem: String {
@@ -472,6 +508,48 @@ struct ProcessRow: View {
         case 200...: return .orange
         case 50...:  return .yellow
         default:     return .secondary
+        }
+    }
+}
+
+// MARK: - Sparkline
+
+struct SparklineView: View {
+    let data: [Double]
+    let color: Color
+
+    @Environment(\.scaleFactor) private var scaleFactor
+
+    var body: some View {
+        Canvas { context, size in
+            guard data.count > 1 else { return }
+            let maxVal = max(data.max() ?? 1, 1)
+            let step = size.width / CGFloat(data.count - 1)
+
+            var path = Path()
+            for (i, value) in data.enumerated() {
+                let x = CGFloat(i) * step
+                let y = size.height - (CGFloat(value / maxVal) * size.height)
+                if i == 0 {
+                    path.move(to: CGPoint(x: x, y: y))
+                } else {
+                    path.addLine(to: CGPoint(x: x, y: y))
+                }
+            }
+
+            // Fill
+            var fillPath = path
+            fillPath.addLine(to: CGPoint(x: size.width, y: size.height))
+            fillPath.addLine(to: CGPoint(x: 0, y: size.height))
+            fillPath.closeSubpath()
+            context.fill(fillPath, with: .linearGradient(
+                Gradient(colors: [color.opacity(0.3), color.opacity(0.0)]),
+                startPoint: CGPoint(x: 0, y: 0),
+                endPoint: CGPoint(x: 0, y: size.height)
+            ))
+
+            // Stroke
+            context.stroke(path, with: .color(color), lineWidth: 1.5 * scaleFactor)
         }
     }
 }
