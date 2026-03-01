@@ -12,6 +12,7 @@ struct ProcessEntry: Identifiable {
 
 class SystemStats: ObservableObject {
     @Published var cpuUsage: Double = 0
+    @Published var perCoreUsage: [Double] = []
     @Published var memUsed: UInt64 = 0
     @Published var memTotal: UInt64 = 0
     @Published var diskUsed: UInt64 = 0
@@ -25,6 +26,8 @@ class SystemStats: ObservableObject {
     @Published var netUpSpeed: Double = 0
     @Published var netTotalIn: UInt64 = 0
     @Published var netTotalOut: UInt64 = 0
+    @Published var netDownHistory: [Double] = []  // bytes/s, last 5 minutes
+    @Published var netUpHistory: [Double] = []    // bytes/s, last 5 minutes
     @Published var cpuTemp: Double? = nil
     @Published var fanSpeeds: [Int] = []
     @Published var processes: [ProcessEntry] = []
@@ -62,7 +65,7 @@ class SystemStats: ObservableObject {
             guard let self else { return }
             self.refreshCount += 1
 
-            let cpu = self.readCPU()
+            let (cpu, coreUsages) = self.readCPU()
             let (mUsed, mTotal) = self.readMemory()
             let (dUsed, dTotal) = self.readDisk()
             let up = ProcessInfo.processInfo.systemUptime
@@ -78,6 +81,7 @@ class SystemStats: ObservableObject {
 
             DispatchQueue.main.async {
                 self.cpuUsage = cpu
+                self.perCoreUsage = coreUsages
                 self.memUsed = mUsed
                 self.memTotal = mTotal
                 self.diskUsed = dUsed
@@ -90,6 +94,16 @@ class SystemStats: ObservableObject {
                 self.netTotalOut = netOut
                 self.netDownSpeed = downSpd
                 self.netUpSpeed = upSpd
+                // Append to history, keep last 300 samples (10 min at 2s intervals)
+                self.netDownHistory.append(downSpd)
+                self.netUpHistory.append(upSpd)
+                let maxSamples = 300
+                if self.netDownHistory.count > maxSamples {
+                    self.netDownHistory.removeFirst(self.netDownHistory.count - maxSamples)
+                }
+                if self.netUpHistory.count > maxSamples {
+                    self.netUpHistory.removeFirst(self.netUpHistory.count - maxSamples)
+                }
                 self.cpuTemp = temp
                 self.fanSpeeds = fans
                 if let procs {
@@ -134,7 +148,7 @@ class SystemStats: ObservableObject {
     }
 
     // MARK: - CPU Usage
-    private func readCPU() -> Double {
+    private func readCPU() -> (Double, [Double]) {
         var cpuInfo: processor_info_array_t?
         var numCPUInfo: mach_msg_type_number_t = 0
         var numCPUs: natural_t = 0
@@ -144,7 +158,7 @@ class SystemStats: ObservableObject {
                                           &numCPUs,
                                           &cpuInfo,
                                           &numCPUInfo)
-        guard result == KERN_SUCCESS, let info = cpuInfo else { return 0 }
+        guard result == KERN_SUCCESS, let info = cpuInfo else { return (0, []) }
 
         var totalUser: Int32 = 0, totalSystem: Int32 = 0
         var totalIdle: Int32 = 0, totalNice: Int32 = 0
@@ -158,6 +172,7 @@ class SystemStats: ObservableObject {
         }
 
         var usage: Double = 0
+        var perCore: [Double] = []
         if let prev = prevCPUInfo {
             var prevUser: Int32 = 0, prevSystem: Int32 = 0
             var prevIdle: Int32 = 0, prevNice: Int32 = 0
@@ -167,6 +182,18 @@ class SystemStats: ObservableObject {
                 prevSystem += prev[offset + Int(CPU_STATE_SYSTEM)]
                 prevIdle   += prev[offset + Int(CPU_STATE_IDLE)]
                 prevNice   += prev[offset + Int(CPU_STATE_NICE)]
+
+                // Per-core usage
+                let cUser   = info[offset + Int(CPU_STATE_USER)] - prev[offset + Int(CPU_STATE_USER)]
+                let cSystem = info[offset + Int(CPU_STATE_SYSTEM)] - prev[offset + Int(CPU_STATE_SYSTEM)]
+                let cIdle   = info[offset + Int(CPU_STATE_IDLE)] - prev[offset + Int(CPU_STATE_IDLE)]
+                let cNice   = info[offset + Int(CPU_STATE_NICE)] - prev[offset + Int(CPU_STATE_NICE)]
+                let cTotal  = cUser + cSystem + cIdle + cNice
+                if cTotal > 0 {
+                    perCore.append(Double(cUser + cSystem + cNice) / Double(cTotal))
+                } else {
+                    perCore.append(0)
+                }
             }
             let dUser   = totalUser - prevUser
             let dSystem = totalSystem - prevSystem
@@ -184,7 +211,7 @@ class SystemStats: ObservableObject {
 
         prevCPUInfo = cpuInfo
         prevCPUInfoCount = numCPUInfo
-        return usage
+        return (usage, perCore)
     }
 
     // MARK: - Memory
